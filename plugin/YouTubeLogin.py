@@ -188,7 +188,8 @@ class YouTubeLogin():
             fetch_options = False
 
             # Check if we are logged in.
-            nick = self.common.parseDOM(ret["content"], "p", attrs={"class": "masthead-expanded-acct-sw-id2"})
+            #nick = self.common.parseDOM(ret["content"], "p", attrs={"class": "masthead-expanded-acct-sw-id2"})
+            nick = self.common.parseDOM(ret["content"], "span", attrs={"id": "yt-masthead-user-displayname"})
 
             # Check if there are any errors to report
             errors = self.core._findErrors(ret, silent=True)
