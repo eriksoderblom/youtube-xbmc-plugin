@@ -395,9 +395,16 @@ class YouTubePlayer():
 
         return links
 
-    @staticmethod
-    def printDBG(s):
-        print(s)
+    def _extractVarLocalFuns(self, match):
+        varName, objBody = match.groups()
+        output = ''
+        for func in objBody.split( '},' ):
+            output += re.sub(
+                r'^([^:]+):function\(([^)]*)\)',
+                r'function %s__\1(\2,*args)' % varName,
+                func
+            ) + '\n'
+        return output
 
     def _cleanTmpVariables(self):
         self.fullAlgoCode = ''
@@ -405,7 +412,9 @@ class YouTubePlayer():
         self.playerData = ''
 
     def _jsToPy(self, jsFunBody):
-        pythonFunBody = re.sub(r'function (\w*)\$(\w*)', r'function \1_S_\2', jsFunBody)
+        self.common.log(jsFunBody)
+        pythonFunBody = re.sub(r'var ([^=]+)={(.*?)}};', self._extractVarLocalFuns, jsFunBody)
+        pythonFunBody = re.sub(r'function (\w*)\$(\w*)', r'function \1_S_\2', pythonFunBody)
         pythonFunBody = pythonFunBody.replace('function', 'def').replace('{', ':\n\t').replace('}', '').replace(';', '\n\t').replace('var ', '')
         pythonFunBody = pythonFunBody.replace('.reverse()', '[::-1]')
 
@@ -420,14 +429,24 @@ class YouTubePlayer():
             if match:
                 lines[i] = lines[i].replace( match.group(0), 'len(' + match.group(1)  + ')')
             # a.slice(3) -> a[3:]
-            match = re.search('(\w+?)\.slice\(([0-9]+?)\)', lines[i])
+            match = re.search('(\w+?)\.slice\((\w+?)\)', lines[i])
             if match:
                 lines[i] = lines[i].replace( match.group(0), match.group(1) + ('[%s:]' % match.group(2)) )
+
             # a.join("") -> "".join(a)
             match = re.search('(\w+?)\.join\(("[^"]*?")\)', lines[i])
             if match:
                 lines[i] = lines[i].replace( match.group(0), match.group(2) + '.join(' + match.group(1) + ')' )
-        return "\n".join(lines)
+
+            # a.splice(b,c) -> del a[b:c]
+            match = re.search('(\w+?)\.splice\(([^,]+),([^)]+)\)', lines[i])
+            if match:
+                lines[i] = lines[i].replace( match.group(0), 'del ' + match.group(1) + '[' + match.group(2) + ':' + match.group(3) + ']' )
+
+        pythonFunBody = "\n".join(lines)
+        pythonFunBody = re.sub(r'(\w+)\.(\w+)\(', r'\1__\2(', pythonFunBody)
+        pythonFunBody = re.sub(r'([^=])(\w+)\[::-1\]', r'\1\2.reverse()', pythonFunBody)
+        return pythonFunBody
 
     def _getLocalFunBody(self, funName, playerData):
         # get function body
@@ -462,7 +481,8 @@ class YouTubePlayer():
                 return ''
 
             # get main function name
-            match = re.search("signature=(\w+?)\([^)]\)", playerData)
+            match = re.search("signature=([$a-zA-Z]+)\([^)]\)", playerData)
+
             if match:
                 mainFunName = match.group(1)
                 self.common.log('Main signature function name = "%s"' % mainFunName)
@@ -510,6 +530,7 @@ class YouTubePlayer():
             exec( algoCodeObj, vGlobals, vLocals )
         except:
             self.common.log('decryptSignature exec code EXCEPTION')
+            exec( algoCodeObj, vGlobals, vLocals )
             return ''
 
         self.common.log('Decrypted signature = [%s]' % vLocals['outSignature'])
@@ -520,8 +541,25 @@ class YouTubePlayer():
 
         return vLocals['outSignature']
 
+    def _extractLocalVarNames(self, mainFunBody ):
+        valid_funcs = ( 'reverse', 'split', 'splice', 'slice', 'join' )
+        match = re.compile( r'[; =(,](\w+)\.(\w+)\(' ).findall( mainFunBody )
+        local_vars = []
+        for name in match:
+            if name[1] not in valid_funcs:
+                local_vars.append( name[0] )
+        self.common.log('Found variable names: ' + str(local_vars))
+        return set( local_vars )
+
+    def _getLocalVarObjBody(self, varName, playerData):
+        match = re.search( r'var %s={.*?}};' % varName, playerData )
+        if match:
+            self.common.log('Found variable object: ' + match.group(0))
+            return match.group(0)
+        return ''
+
     # Note, this method is using a recursion
-    def _getfullAlgoCode( self, mainFunName, playerData, recDepth = 0, allLocalFunNamesTab=[] ):
+    def _getfullAlgoCode( self, mainFunName, playerData, recDepth = 0, allLocalFunNamesTab=[], allLocalVarNamesTab=[] ):
         # Max recursion of 5
         if 5 <= recDepth:
             self.common.log('_getfullAlgoCode: Maximum recursion depth exceeded')
@@ -538,6 +576,16 @@ class YouTubePlayer():
                         allLocalFunNamesTab.append(funName)
                         self.common.log("Add local function %s to known functions" % mainFunName)
                         funBody = self._getfullAlgoCode( funName, playerData, recDepth + 1, allLocalFunNamesTab ) + "\n" + funBody
+
+            varNames = self._extractLocalVarNames(funBody)
+            if len(varNames):
+                for varName in varNames:
+                    self.common.log("Found local var object: " + str(varName))
+                    self.common.log("Known vars: " + str(allLocalVarNamesTab))
+                    if varName not in allLocalVarNamesTab:
+                        self.common.log("Adding local var object %s to known objects" % varName)
+                        allLocalVarNamesTab.append(varName)
+                        funBody = self._getLocalVarObjBody( varName, playerData ) + "\n" + funBody
 
             # conver code from javascript to python
             funBody = self._jsToPy(funBody)
