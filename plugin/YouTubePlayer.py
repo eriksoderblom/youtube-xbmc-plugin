@@ -23,8 +23,6 @@ import urllib
 try: import simplejson as json
 except ImportError: import json
 
-import urllib2, re
-
 class YouTubePlayer():
     fmt_value = {
         5: "240p h263 flv container",
@@ -53,9 +51,6 @@ class YouTubePlayer():
         121: "hd1080"
         }
 
-    # MAX RECURSION Depth for security
-    MAX_REC_DEPTH = 5
-
     # YouTube Playback Feeds
     urls = {}
     urls['video_stream'] = "http://www.youtube.com/watch?v=%s&safeSearch=none"
@@ -79,9 +74,6 @@ class YouTubePlayer():
         self.core = sys.modules["__main__"].core
         self.login = sys.modules["__main__"].login
         self.subtitles = sys.modules["__main__"].subtitles
-        
-        self.algoCache = {}
-        self._cleanTmpVariables()
 
         self.algoCache = {}
 
@@ -356,15 +348,15 @@ class YouTubePlayer():
         self.common.log(u"")
         links = {}
 
-        flashvars = self.extractFlashVars(result[u"content"], 0)
+        flashvars = self.extractFlashVars(result[u"content"])
         if not flashvars.has_key(u"url_encoded_fmt_stream_map"):
             return links
 
         if flashvars.has_key(u"ttsurl"):
             video[u"ttsurl"] = flashvars[u"ttsurl"]
 
-        if flashvars.has_key(u"ttsurl"):
-            video[u"ttsurl"] = flashvars[u"ttsurl"]
+        if flashvars.has_key(u"hlsvp"):                               
+            video[u"hlsvp"] = flashvars[u"hlsvp"]    
 
         for url_desc in flashvars[u"url_encoded_fmt_stream_map"].split(u","):
             url_desc_map = cgi.parse_qs(url_desc)
@@ -405,11 +397,6 @@ class YouTubePlayer():
                 func
             ) + '\n'
         return output
-
-    def _cleanTmpVariables(self):
-        self.fullAlgoCode = ''
-        self.allLocalFunNamesTab = []
-        self.playerData = ''
 
     def _jsToPy(self, jsFunBody):
         self.common.log(jsFunBody)
@@ -592,13 +579,16 @@ class YouTubePlayer():
             return '\n' + funBody + '\n'
         return funBody
 
-    def getVideoPageFromYoutube(self, get):
+    def getVideoPageFromYoutube(self, get, has_verified = False):
         login = "false"
+        verify = ""
 
         if self.pluginsettings.userHasProvidedValidCredentials():
             login = "true"
+            if has_verified:
+                verify = u"&has_verified=1"
 
-        page = self.core._fetchPage({u"link": self.urls[u"video_stream"] % get(u"videoid"), "login": login})
+        page = self.core._fetchPage({u"link": (self.urls[u"video_stream"] % get(u"videoid")) + verify, "login": login})
         self.common.log("Step1: " + repr(page["content"].find("ytplayer")))
 
         if not page:
@@ -619,8 +609,7 @@ class YouTubePlayer():
         if self.isVideoAgeRestricted(result):
             self.common.log(u"Age restricted video")
             if self.pluginsettings.userHasProvidedValidCredentials():
-                self.login._httpLogin({"new":"true"})
-                result = self.getVideoPageFromYoutube(get)
+                result = self.getVideoPageFromYoutube(get, True)
             else:
                 video[u"apierror"] = self.language(30622)
 
