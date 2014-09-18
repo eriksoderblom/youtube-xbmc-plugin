@@ -31,12 +31,12 @@ except ImportError:
 
 # plugin constants
 version = "4.4.10"
-plugin = "YouTube-" + version
+plugin = "YouTubeRedux-" + version
 author = "TheCollective"
 url = "www.xbmc.com"
 
 # xbmc hooks
-settings = xbmcaddon.Addon(id='plugin.video.youtube')
+settings = xbmcaddon.Addon(id='plugin.video.youtuberedux')
 language = settings.getLocalizedString
 dbg = settings.getSetting("debug") == "true"
 dbglevel = 3
@@ -74,10 +74,10 @@ if (__name__ == "__main__" ):
 
     try:
         import StorageServer
-        cache = StorageServer.StorageServer("YouTube")
+        cache = StorageServer.StorageServer("YouTubeRedux")
     except:
         import storageserverdummy as StorageServer
-        cache = StorageServer.StorageServer("YouTube")
+        cache = StorageServer.StorageServer("YouTubeRedux")
 
     import CommonFunctions as common
     common.plugin = plugin
